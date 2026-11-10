@@ -1,0 +1,794 @@
+/* Painel Supervisório SAAE — CSS consolidado
+   Baseado no CSS fornecido; mantém layout, cores e comportamento responsivo.
+   Ajustes de desktop reunidos em um único @media (min-width: 1200px).
+*/
+
+/* ===== BASE E ESTRUTURA ===== */
+
+:root {
+    font-family: Segoe UI, Arial, sans-serif;
+    color: #e8f0fa;
+    background: #0b1220;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+}
+
+.layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+main {
+    padding: 34px;
+    flex: 1;
+    min-width: 0;
+    max-width: 1700px;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 30px;
+}
+
+.eyebrow {
+    color: #38bdf8;
+    letter-spacing: 2px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+h1 {
+    font-size: 30px;
+    margin: 5px 0;
+}
+
+h2 {
+    font-size: 19px;
+    margin: 0 0 7px;
+}
+
+h3 {
+    font-size: 15px;
+    margin: 0 0 6px;
+}
+
+/* ===== MENU LATERAL ===== */
+
+.sidebar {
+    width: 235px;
+    flex-shrink: 0;
+    background: #101b2e;
+    border-right: 1px solid #22324a;
+    padding: 26px 17px;
+    display: flex;
+    flex-direction: column;
+}
+
+.brand {
+    font-size: 26px;
+    font-weight: 800;
+    color: #38bdf8;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.brand span {
+    font-size: 21px;
+    color: white;
+}
+
+.brand small {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: #8aa0b9;
+}
+
+.sidebar nav {
+    display: grid;
+    gap: 8px;
+    margin-top: 48px;
+}
+
+.sidebar a {
+    color: #a7b9ce;
+    text-decoration: none;
+    padding: 13px;
+    border-radius: 9px;
+    font-size: 14px;
+}
+
+.sidebar a:hover,
+
+.sidebar a.active {
+    background: #1b344d;
+    color: #64d6ff;
+}
+
+.sidefoot {
+    margin-top: auto;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: #8093a8;
+    line-height: 2;
+}
+
+/* ===== INDICADORES E STATUS ===== */
+
+.muted,
+
+.heading p,
+
+.control p {
+    color: #8195ae;
+    font-size: 13px;
+    margin: 0;
+}
+
+.demo,
+
+.pill {
+    color: #fbbf24;
+    border: 1px solid #6a5427;
+    background: #32291c;
+    padding: 9px 13px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.comunicando {
+    color: #4ffb24;
+    border: 1px solid #219e64;
+    background: #1f321c;
+    padding: 9px 13px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.falhacomunicacao {
+    color: #d70d0d;
+    border: 1px solid #6a5427;
+    background: #32291c;
+    padding: 9px 13px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.pill {
+    color: #78b9e5;
+    background: #142a40;
+    border-color: #23445e;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.stat,
+
+.panel {
+    background: #121f32;
+    border: 1px solid #24354b;
+    border-radius: 14px;
+}
+
+.stat {
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+}
+
+.stat span {
+    font-size: 10px;
+    color: #8da4bc;
+    letter-spacing: 1.3px;
+    font-weight: 700;
+}
+
+.stat strong {
+    font-size: 19px;
+}
+
+.stat strong.unknown {
+    color: #fbbf24;
+}
+
+.stat small {
+    color: #7f94ad;
+}
+
+.hb-online {
+    color: #34d399 !important;
+}
+
+.hb-offline {
+    color: #fb7185 !important;
+}
+
+.heartbeat-online,
+
+.heartbeat-offline {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+}
+
+.heartbeat-online {
+    color: #22c55e;
+}
+
+.heartbeat-offline {
+    color: #ef4444;
+}
+
+.heartbeat-bolinha {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.stat .heartbeat-online .heartbeat-bolinha {
+    background-color: #22c55e;
+}
+
+.stat .heartbeat-offline .heartbeat-bolinha {
+    background-color: #ef4444;
+}
+
+/* ===== CARDS E RESERVATÓRIOS ===== */
+
+.content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-top: 20px;
+}
+
+.panel {
+    padding: 25px;
+}
+
+.heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.tanks {
+    display: flex;
+    justify-content: space-evenly;
+    gap: 20px;
+    padding: 26px 0 5px;
+}
+
+.tankcard {
+    text-align: center;
+}
+
+.tank {
+    position: relative;
+    width: 135px;
+    height: 175px;
+    border: 5px solid #506b87;
+    border-top: 8px solid #6b859f;
+    border-radius: 12px 12px 20px 20px;
+    overflow: hidden;
+    background: #0b1727;
+    margin: auto auto 16px;
+}
+
+.water {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(180deg, #23b5eb, #1263ae);
+    opacity: .85;
+}
+
+.tank span {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 28px;
+    font-weight: 800;
+    text-shadow: 0 2px 6px #001;
+}
+
+.tankcard small {
+    color: #8097b2;
+}
+
+/* ===== CONTROLES E INTERRUPTORES ===== */
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 100px;
+    height: 52px;
+    flex-shrink: 0;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.switch-slider {
+    position: absolute;
+    inset: 0;
+    background: #980303;
+    border-radius: 52px;
+    transition: background 0.25s;
+    cursor: pointer;
+}
+
+.switch-slider::before {
+    content: "";
+    position: absolute;
+    width: 44px;
+    height: 44px;
+    left: 4px;
+    bottom: 4px;
+    background: #9ca3af;
+    border-radius: 50%;
+    transition: transform 0.25s, background 0.25s;
+}
+
+.switch input:checked+.switch-slider {
+    background: #15803d;
+}
+
+.switch input:checked+.switch-slider::before {
+    transform: translateX(48px);
+    background: #ffffff;
+}
+
+.switch input:disabled+.switch-slider {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.switch input:focus-visible+.switch-slider {
+    outline: 2px solid #60a5fa;
+    outline-offset: 3px;
+}
+
+.switch-status {
+    font-size: 14px;
+    color: #94a3b8;
+    min-width: 85px;
+}
+
+.control {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #293b52;
+    padding: 25px 0;
+    gap: 10px;
+}
+
+#controles .control h3 {
+    font-size: 17px;
+}
+
+#controles .control p {
+    font-size: 14px;
+}
+
+#controles .switch-status {
+    min-width: 90px;
+}
+
+.control-bomba,
+.control-sirene {
+    flex-wrap: wrap;
+}
+
+.control-bomba > div:first-child,
+.control-sirene > div:first-child {
+    flex: 1;
+}
+
+.control-bomba #bomba-comando-info,
+.control-sirene #sirene-comando-info {
+    flex-basis: 100%;
+    margin: 8px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #94a3b8;
+}
+
+/* ===== BOTÕES, EVENTOS E RODAPÉ ===== */
+
+button {
+    background: #183e54;
+    color: #b8d1df;
+    border: 1px solid #315a71;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-weight: 700;
+}
+
+button:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.notice {
+    font-size: 12px;
+    color: #a0aec0;
+    line-height: 1.6;
+    margin-bottom: 0;
+}
+
+.events {
+    margin-top: 20px;
+}
+
+.empty {
+    border: 1px dashed #354960;
+    border-radius: 9px;
+    text-align: center;
+    padding: 30px;
+    color: #7f94ad;
+    font-size: 13px;
+    margin-top: 20px;
+}
+
+footer {
+    color: #627b97;
+    text-align: center;
+    font-size: 11px;
+    margin: 26px 0;
+}
+
+/* ===== CENTRAL DE ALERTAS ===== */
+
+.alerta-overlay[hidden] {
+    display: none !important;
+}
+
+.alerta-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.78);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 20px;
+}
+
+.alerta-janela {
+    width: 100%;
+    max-width: 620px;
+    max-height: 90vh;
+    overflow-y: auto;
+    background: #121f32;
+    border: 2px solid #ef4444;
+    border-radius: 14px;
+    box-shadow: 0 0 35px rgba(239, 68, 68, 0.25);
+    color: #e8f0fa;
+}
+
+.alerta-cabecalho {
+    background: #7f1d1d;
+    padding: 20px 25px;
+    border-bottom: 1px solid #ef4444;
+}
+
+.alerta-cabecalho h2 {
+    margin: 0;
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.alerta-conteudo {
+    padding: 25px;
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.alerta-conteudo h3 {
+    color: #f87171;
+    font-size: 17px;
+    margin-bottom: 15px;
+}
+
+#alerta-mensagem {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+.alerta-horario {
+    margin-top: 22px;
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+.alerta-rodape {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 0 25px 20px;
+    flex-wrap: wrap;
+}
+
+#alerta-silenciar {
+    background: #92400e;
+    border: 1px solid #f59e0b;
+    color: #ffffff;
+    cursor: pointer;
+}
+
+#alerta-silenciar:hover {
+    background: #b45309;
+}
+
+#alerta-fechar {
+    background: #334155;
+    border: 1px solid #64748b;
+    color: #ffffff;
+    cursor: pointer;
+}
+
+#alerta-fechar:hover {
+    background: #475569;
+}
+
+#alerta-silencio-status {
+    text-align: center;
+    color: #fbbf24;
+    font-size: 12px;
+    margin: 0 20px 18px;
+}
+
+/* ===== RESPONSIVIDADE (max-width: 1100px) ===== */
+@media (max-width: 1100px) {
+    .stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .content {
+        grid-template-columns: 1fr;
+    }
+
+}
+
+/* ===== RESPONSIVIDADE (max-width: 700px) ===== */
+@media (max-width: 700px) {
+    .layout {
+        display: block;
+    }
+
+    .sidebar {
+        width: auto;
+        padding: 15px;
+    }
+
+    .sidebar nav {
+        display: flex;
+        overflow: auto;
+        margin-top: 15px;
+    }
+
+    .sidebar a {
+        white-space: nowrap;
+    }
+
+    .sidefoot {
+        display: none;
+    }
+
+    main {
+        padding: 18px;
+    }
+
+    header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    h1 {
+        font-size: 25px;
+    }
+
+    .stats {
+        gap: 10px;
+    }
+
+    .stat {
+        padding: 15px;
+    }
+
+    .stat strong {
+        font-size: 16px;
+    }
+
+    .panel {
+        padding: 18px;
+    }
+
+    .tank {
+        width: 105px;
+        height: 145px;
+    }
+
+    .control {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+}
+
+/* ===== RESPONSIVIDADE (max-width: 600px) ===== */
+@media (max-width: 600px) {
+    .alerta-janela {
+        max-height: 95vh;
+    }
+
+    .alerta-rodape {
+        flex-direction: column;
+    }
+
+    .alerta-rodape button {
+        width: 100%;
+    }
+
+}
+
+/* ===== RESPONSIVIDADE (min-width: 1200px) ===== */
+@media (min-width: 1200px) {
+    .layout {
+        min-height: 100vh;
+    }
+
+    main {
+        padding: 12px 30px 4px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    header {
+        margin-bottom: 10px;
+    }
+
+    .stats {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .stat {
+        padding: 12px 18px;
+        gap: 7px;
+        min-height: 0;
+    }
+
+    .content {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 16px;
+        margin-top: 6px;
+        flex: 1;
+        align-items: stretch;
+    }
+
+    .panel {
+        padding: 16px 22px 48px;
+    }
+
+    .tanks {
+        padding: 8px 0 0;
+    }
+
+    .tank {
+        width: 140px;
+        height: 150px;
+        margin-bottom: 8px;
+    }
+
+    .control {
+        padding: 14px 0;
+    }
+
+    footer {
+        margin: 4px 0 0;
+        padding: 0;
+        line-height: 14px;
+    }
+
+    .content > .panel {
+        height: 100%;
+    }
+
+    #reservatorios {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    #reservatorios .tanks {
+        flex: 1;
+        display: flex;
+        align-items: stretch;
+        padding: 15px 0;
+    }
+
+    #reservatorios .tankcard {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 0;
+    }
+
+    #reservatorios .tank {
+        flex: 1;
+        width: 140px;
+        height: auto;
+        min-height: 150px;
+        margin: 0 auto 12px;
+    }
+
+    #controles {
+        display: flex;
+        flex-direction: column;
+    }
+
+    #controles .control {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    #controles .heading {
+        flex-shrink: 0;
+    }
+
+    #controles #bomba-comando-info,
+    
+        #controles #sirene-comando-info {
+        flex-shrink: 0;
+    }
+
+}
+/* Permitir seleção de textos no painel */
+html,
+body {
+    -webkit-user-select: text;
+    user-select: text;
+}

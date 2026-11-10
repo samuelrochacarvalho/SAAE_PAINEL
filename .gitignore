@@ -1,0 +1,38 @@
+# =====================================
+# SAAE PAINEL - ARQUIVOS PROTEGIDOS
+# =====================================
+
+# Credenciais Adafruit IO e configurações
+/config/comandos.php
+/mqtt/config.py
+/runtime/php/
+.env
+.env.*
+
+# Banco de dados SQLite
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Cache Python
+__pycache__/
+*.pyc
+
+# Ambientes virtuais
+.venv/
+venv/
+
+# Credenciais e certificados
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Arquivos temporários
+*.tmp
+*.bak
