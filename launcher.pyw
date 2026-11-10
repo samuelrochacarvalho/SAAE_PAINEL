@@ -16,6 +16,7 @@ from pathlib import Path
 import urllib.request
 import urllib.error
 import atexit
+import json
 
 import webview
 
@@ -25,7 +26,7 @@ DB_FILE = APP_DIR / 'dados' / 'saae.db'
 MQTT_SCRIPT = APP_DIR / 'mqtt' / 'cliente.py'
 INDEX_FILE = APP_DIR / 'index.php'
 HOST = '127.0.0.1'
-PORT = 8090
+PORT = 80
 URL = f'http://{HOST}:{PORT}/'
 
 CREATE_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
@@ -155,6 +156,42 @@ def check_internet():
     return False
 
 
+VERSAO_URL = (
+    'https://raw.githubusercontent.com/'
+    'samuelrochacarvalho/SAAE_PAINEL/main/versao.json'
+)
+VERSAO_LOCAL = APP_DIR / 'versao.json'
+
+
+def verificar_atualizacao():
+    """Consulta o GitHub e informa se há uma versão mais recente."""
+    try:
+        with VERSAO_LOCAL.open('r', encoding='utf-8') as arquivo:
+            versao_local = json.load(arquivo)['versao']
+
+        requisicao = urllib.request.Request(
+            VERSAO_URL,
+            headers={
+                'User-Agent': 'SAAE-Painel/1.0',
+                'Cache-Control': 'no-cache',
+            },
+        )
+        with urllib.request.urlopen(requisicao, timeout=5) as resposta:
+            versao_remota = json.load(resposta)['versao']
+
+        def converter_versao(versao):
+            partes = versao.split('.')
+            if len(partes) != 3 or not all(p.isdigit() for p in partes):
+                raise ValueError('Formato de versão inválido')
+            return tuple(int(p) for p in partes)
+
+        return converter_versao(versao_remota) > converter_versao(versao_local)
+
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as erro:
+        print(f'Não foi possível verificar atualizações: {erro}')
+        return None
+
+
 def check_files():
     for path in (PHP_EXE, INDEX_FILE, MQTT_SCRIPT):
         if not path.is_file():
@@ -182,6 +219,20 @@ def startup():
         if STOP_EVENT.is_set():
             return
         update_status('Internet local disponível.', 20)
+
+        # Somente detecta atualizações; não baixa nem altera arquivos nesta etapa.
+        update_status('Verificando atualizações...', 22)
+        atualizacao_disponivel = verificar_atualizacao()
+        if STOP_EVENT.is_set():
+            return
+        if atualizacao_disponivel is True:
+            update_status('Nova versão disponível! (instalação ainda não ativada)', 23)
+        elif atualizacao_disponivel is False:
+            update_status('Sistema atualizado.', 23)
+        else:
+            update_status('Não foi possível verificar atualizações. Continuando...', 23)
+        if STOP_EVENT.wait(2):
+            return
 
         update_status('Verificando banco SQLite e arquivos...', 25)
         check_files()
