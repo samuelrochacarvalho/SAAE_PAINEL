@@ -26,7 +26,7 @@ DB_FILE = APP_DIR / 'dados' / 'saae.db'
 MQTT_SCRIPT = APP_DIR / 'mqtt' / 'cliente.py'
 INDEX_FILE = APP_DIR / 'index.php'
 HOST = '127.0.0.1'
-PORT = 80
+PORT = 8090
 URL = f'http://{HOST}:{PORT}/'
 
 CREATE_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
@@ -35,6 +35,39 @@ WINDOW = None
 STARTED = False
 STOP_EVENT = threading.Event()
 PROCS_LOCK = threading.RLock()
+LOG_DIR = APP_DIR / 'logs'
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def registrar_launcher(mensagem):
+    """Registro simples, independente do processo MQTT."""
+    from datetime import datetime
+    try:
+        with (LOG_DIR / 'launcher.log').open('a', encoding='utf-8') as arquivo:
+            arquivo.write(f"{datetime.now().astimezone().isoformat(timespec='seconds')} {mensagem}\n")
+    except OSError:
+        pass
+
+
+def supervisionar_mqtt(processo_inicial, comando):
+    """Reinicia somente o trabalhador MQTT que efetivamente terminou."""
+    proc = processo_inicial
+    espera = 3
+    while not STOP_EVENT.wait(5):
+        codigo = proc.poll()
+        if codigo is None:
+            continue
+        registrar_launcher(f'MQTT encerrou (código {codigo}); reinício em {espera}s')
+        if STOP_EVENT.wait(espera):
+            return
+        try:
+            proc = start_process(comando, APP_DIR / 'mqtt')
+            registrar_launcher(f'MQTT reiniciado, PID {proc.pid}')
+            espera = 3
+        except Exception as erro:
+            registrar_launcher(f'Falha ao reiniciar MQTT: {erro!r}')
+            espera = min(espera * 2, 60)
+
 
 
 def mqtt_worker():
@@ -110,6 +143,7 @@ def start_process(command, cwd):
     with PROCS_LOCK:
         if STOP_EVENT.is_set():
             raise RuntimeError('Inicialização cancelada.')
+        # Os erros do trabalhador MQTT são registrados pelo próprio cliente.py.
         proc = subprocess.Popen(command, cwd=str(cwd), stdin=subprocess.DEVNULL,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 creationflags=CREATE_FLAGS)
@@ -248,6 +282,9 @@ def startup():
         if mqtt_proc.poll() is not None:
             raise RuntimeError('O cliente MQTT encerrou ao iniciar. Verifique as dependências Python e mqtt/config.py.')
 
+        threading.Thread(target=supervisionar_mqtt, args=(mqtt_proc, mqtt_cmd),
+                         daemon=True, name='supervisor-mqtt').start()
+        registrar_launcher(f'MQTT iniciado, PID {mqtt_proc.pid}; supervisão ativa')
         if STOP_EVENT.is_set():
             return
         update_status('Iniciando servidor PHP...', 70)
