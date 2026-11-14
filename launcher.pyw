@@ -502,6 +502,37 @@ def check_files():
         db.execute('SELECT 1 FROM estacao_heartbeat LIMIT 1').fetchone()
 
 
+def executar_atualizador():
+    """Abre o atualizador separado; ele aguarda este launcher sair antes de substituir arquivos."""
+    arquivo = APP_DIR / 'atualizador.pyw'
+    if not arquivo.is_file():
+        raise FileNotFoundError('atualizador.pyw não encontrado na pasta do SAAE_PAINEL.')
+
+    interpretador = Path(sys.executable)
+    if os.name == 'nt' and interpretador.name.lower() == 'python.exe':
+        pythonw = interpretador.with_name('pythonw.exe')
+        if pythonw.is_file():
+            interpretador = pythonw
+    # O atualizador fornecido é um script Python; não o execute usando um EXE
+    # congelado do launcher, pois ele reiniciaria o aplicativo em vez do atualizador.
+    if getattr(sys, 'frozen', False):
+        raise RuntimeError('Launcher empacotado: configure um Python externo para o atualizador.pyw.')
+
+    proc = subprocess.Popen(
+        [str(interpretador), str(arquivo), '--parent-pid', str(os.getpid())],
+        cwd=str(APP_DIR),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=CREATE_FLAGS,
+    )
+    registrar_launcher(f'Atualizador iniciado, PID {proc.pid}; encerrando launcher.')
+    # O atualizador não pertence à lista PROCS, pois deve sobreviver ao fechamento.
+    STOP_EVENT.set()
+    splash.after(0, close_splash)
+    return True
+
+
 def startup():
     global STARTED
     try:
@@ -531,13 +562,14 @@ def startup():
             return
         update_status('Internet local disponível.', 20)
 
-        # Somente detecta atualizações; não baixa nem altera arquivos nesta etapa.
         update_status('Verificando atualizações...', 22)
         atualizacao_disponivel = verificar_atualizacao()
         if STOP_EVENT.is_set():
             return
         if atualizacao_disponivel is True:
-            update_status('Nova versão disponível! (instalação ainda não ativada)', 23)
+            update_status('Nova versão encontrada. Abrindo atualizador...', 23)
+            executar_atualizador()
+            return
         elif atualizacao_disponivel is False:
             update_status('Sistema atualizado.', 23)
         else:

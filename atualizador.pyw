@@ -28,7 +28,7 @@ MAX_TOTAL = 80 * 1024 * 1024
 PROTECTED_FILES = {'.gitignore', 'atualizador.pyw', 'mqtt/config.py', 'config/comandos.php'}
 PROTECTED_DIRS = ('.git/', 'dados/', 'runtime/', 'config/', '__pycache__/', '.venv/', 'venv/')
 ALLOWED_DIRS = ('api/', 'assets/', 'mqtt/')
-ALLOWED_FILES = {'launcher.pyw', 'launcher.py', 'index.php'}
+ALLOWED_FILES = {'launcher.pyw', 'launcher.py', 'index.php', 'dashboard.php', 'validar_acesso.php'}
 
 
 def request_bytes(url, limit=MAX_ZIP):
