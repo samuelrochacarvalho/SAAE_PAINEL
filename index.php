@@ -1,185 +1,236 @@
 <?php
-session_start();
-if (empty($_SESSION['csrf_bomba'])) {
-    $_SESSION['csrf_bomba'] = bin2hex(random_bytes(32));
+
+declare(strict_types=1);
+require_once __DIR__ . '/api/proteger_acesso.php';
+if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+
+$arquivo = dirname(__DIR__) . '/saae_privado/acesso_remoto.json';
+$loginLocal = dirname(__DIR__) . '/saae_privado/login_local.json';
+$bootFile = dirname(__DIR__) . '/saae_privado/boot.json';
+$mensagem = '';
+$sucesso = false;
+$urlRedirecionamento = '';
+
+// Local embedded WebView uses a one-time secret and its own PHP session.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['segredo_local'])) {
+    $segredo = (string) $_POST['segredo_local'];
+    $registro = is_file($loginLocal) ? json_decode((string) file_get_contents($loginLocal), true) : null;
+    if (strlen($segredo) >= 48 && is_array($registro) &&
+        hash_equals((string) ($registro['hash'] ?? ''), hash('sha256', $segredo))) {
+        session_regenerate_id(true);
+        $_SESSION['saae_local_autorizado'] = true;
+        $boot = json_decode((string) @file_get_contents($bootFile), true);
+        $_SESSION['saae_local_boot'] = (string)($boot['id'] ?? '');
+        @unlink($loginLocal);
+        header('Location: /dashboard.php', true, 303);
+        exit;
+    }
+    http_response_code(403);
+    exit('Credencial local invalida. Reinicie o aplicativo.');
 }
-$titulo = 'SAAE | Painel Reservatorios';
+
+if (isset($_GET['local']) && $_GET['local'] === '1') {
+    // This page only requests the bridge secret. It does not contain the secret.
+    header('Cache-Control: no-store');
+    ?>
+    <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Iniciando SAAE</title></head>
+    <body style="background:#0b1220;color:white;font-family:Arial;text-align:center;padding-top:20vh">
+    <h2>Autenticando aplicativo local...</h2><p id="estado">Aguarde.</p>
+    <form id="entrada" method="post" action="/index.php">
+      <input type="hidden" name="segredo_local" id="segredo_local">
+    </form>
+    <script>
+      async function autenticar() {
+        try {
+          const segredo = await window.pywebview.api.autorizar_local();
+          document.getElementById('segredo_local').value = segredo;
+          document.getElementById('entrada').submit();
+        } catch (e) {
+          document.getElementById('estado').textContent = 'Falha na autenticação local: ' + e.message;
+        }
+      }
+      if (window.pywebview?.api) autenticar();
+      else window.addEventListener('pywebviewready', autenticar, {once:true});
+    </script></body></html>
+    <?php
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $codigo = trim((string) ($_POST['codigo'] ?? ''));
+    if (!preg_match('/^\d{6}$/', $codigo)) {
+        $mensagem = 'Informe um código válido de 6 dígitos.';
+    } elseif (!is_file($arquivo)) {
+        $mensagem = 'Nenhum acesso remoto foi gerado.';
+    } else {
+        $dados = json_decode((string) file_get_contents($arquivo), true);
+        if (!is_array($dados)) {
+            $mensagem = 'Registro de acesso inválido.';
+        } else {
+            $codigoSalvo = (string) ($dados['codigo'] ?? '');
+            $expiracao = strtotime((string) ($dados['expira_em'] ?? ''));
+            $url = (string) ($dados['url'] ?? '');
+            $host = parse_url($url, PHP_URL_HOST);
+            $hostRequisicao = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+            if (!$expiracao || time() >= $expiracao) {
+                $mensagem = 'Código expirado. Gere um novo acesso.';
+            } elseif (!is_string($host) || !preg_match('/^[a-z0-9-]+\.trycloudflare\.com$/i', $host)
+                || parse_url($url, PHP_URL_SCHEME) !== 'https' || $hostRequisicao !== strtolower($host)) {
+                $mensagem = 'Endereço temporário inválido.';
+            } elseif (!hash_equals($codigoSalvo, $codigo)) {
+                $mensagem = 'Código inválido.';
+            } else {
+                session_regenerate_id(true);
+                $_SESSION['saae_acesso_validado'] = true;
+                $_SESSION['saae_acesso_expira'] = $expiracao;
+                $_SESSION['saae_token_hash'] = hash('sha256', $codigoSalvo . '|' . $url);
+                $sucesso = true;
+                $mensagem = 'Código validado com sucesso!';
+                $urlRedirecionamento = rtrim($url, '/') . '/dashboard.php';
+            }
+        }
+    }
+}
 ?>
-<!doctype html>
+
+<!DOCTYPE html>
 <html lang="pt-BR">
 
 <head>
-    <meta charset="utf-8">
-    <meta name="csrf-bomba" content="<?= htmlspecialchars($_SESSION['csrf_bomba'], ENT_QUOTES, 'UTF-8') ?>">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title><?= htmlspecialchars($titulo) ?></title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SAAE | Validar Acesso</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b1220;
+            color: #e8f0fa;
+            font-family: Arial, sans-serif;
+        }
+
+        .card {
+            width: min(400px, 92vw);
+            background: #111c30;
+            border: 1px solid #26384e;
+            border-radius: 16px;
+            padding: 30px;
+            text-align: center;
+        }
+
+        h2 {
+            margin: 0 0 12px;
+        }
+
+        p {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 15px;
+            margin: 18px 0;
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 26px;
+            letter-spacing: 6px;
+            text-align: center;
+        }
+
+        button {
+            width: 100%;
+            padding: 13px;
+            border: 0;
+            border-radius: 8px;
+            background: #0284c7;
+            color: white;
+            font-size: 15px;
+            cursor: pointer;
+        }
+
+        .mensagem {
+            margin-top: 15px;
+            color: #fbbf24;
+        }
+
+        .sucesso {
+            color: #4ade80;
+        }
+    </style>
 </head>
 
 <body>
-    <div class="layout">
-        <aside class="sidebar">
-            <div class="brand">◈ <span onclick="window.location.reload()">SAAE TROMBAS<small>Reservatorios</small></span></div>
-            <nav><a class="active" href="#visao">▦ Visão geral</a><a href="#reservatorios">◉ Reservatórios</a><a href="#controles">⚡ Controles</a><!--<a href="#eventos">≡ Eventos</a>--></nav>
-            <div class="sidefoot">MONITORAMENTO ATIVO<br><small>Heartbeat via Adafruit IO</small></div>
-        </aside>
-        <main>
-            <header>
-                <div>
-                    <p class="eyebrow">CENTRAL DE MONITORAMENTO</p>
-                    <h1>Painel de operações</h1>
-                    <p class="muted">Acompanhamento das estações e reservatórios</p>
-                </div><span class="comunicando">● Sistema em Pleno Funcionamento </span><!---se tiver falha de comunicaçao em algum heartbeat mudar class para falhacomunicacao -->
-            </header>
-            <section id="visao" class="stats">
-                <article class="stat"><span>COMUNICAÇÃO CAIXA ALTA</span><strong id="cxAlta-status" class="unknown">
-                        <p></p>
-                    </strong><small id="cxAlta-detalhe">Consultando heartbeat</small></article>
-                <article class="stat"><span>COMUNICAÇÃO CÓRREGO</span><strong id="corrego-status" class="unknown">
-                        <p></p>
-                    </strong><small id="corrego-detalhe">Consultando heartbeat</small></article>
-            </section>
-            <div class="content">
-                <section id="reservatorios" class="panel">
-                    <div class="heading">
-                        <div>
-                            <h2>Reservatórios</h2>
-                            <p>Indicadores ilustrativos — sem dados reais</p>
-                        </div><span class="pill">Prévia visual</span>
-                    </div>
-                    <div class="tanks">
-                        <div class="tankcard">
-                            <div class="tank">
-                                <div class="water" id="nivel-alta-agua" style="height:0%"></div>
-                                <span id="nivel-alta-texto">--%</span>
-                            </div>
-                            <h3>Caixa Alta</h3><small><!----></small>
-                        </div>
-                        <div class="tankcard">
-                            <div class="tank">
-                                <div class="water" id="nivel-quadrada-agua" style="height:0%"></div>
-                                <span id="nivel-quadrada-texto">--%</span>
-                            </div>
-                            <h3>Caixa Quadrada</h3><small><!----></small>
-                        </div>
-                    </div>
-                </section>
-                <section id="controles" class="panel">
-                    <div class="heading">
-                        <div>
-                            <h2>Controle remoto caixa quadrada</h2>
-                            <p>Acionamento remoto com confirmação do estado do relé</p>
-                        </div>
-                    </div>
+    <div class="card">
+        <h2>SAAE | Acesso Remoto</h2>
+        <p>Digite o código de 6 dígitos exibido no painel.</p>
 
-                    <div class="control control-bomba">
-                        <div>
-                            <h3>Bomba do Córrego</h3>
-                            <p>
-                                Estado do relé:
-                                <strong id="bomba-rele-status">Verificando...</strong>
-                            </p>
-                        </div>
+        <?php if ($sucesso): ?>
 
-                        <div class="actions">
-                            <label class="switch">
-                                <input type="checkbox" id="bomba-switch" disabled>
-                                <span class="switch-slider"></span>
-                            </label>
-                            <span class="switch-status" id="bomba-status">Indisponível</span>
-                        </div>
+            <p class="mensagem sucesso">
+                Código validado com sucesso!
+            </p>
 
-                        <p id="bomba-comando-info"
-                            role="status"
-                            aria-live="polite">
-                            Verificando disponibilidade do controle da bomba...
-                        </p>
-                    </div>
-                    <div class="control control-sirene">
-                        <div>
-                            <h3>Sirene</h3>
-                            <p>
-                                Estado do relé:
-                                <strong id="sirene-rele-status">Verificando...</strong>
-                            </p>
-                        </div>
+            <p>
+                Você será redirecionado para o painel em
+                <strong id="contador">5</strong> segundos.
+            </p>
 
-                        <div class="actions">
-                            <label class="switch">
-                                <input type="checkbox" id="sirene-switch" disabled>
-                                <span class="switch-slider"></span>
-                            </label>
-                            <span class="switch-status" id="sirene-status">Indisponível</span>
-                        </div>
+            <script>
+                const urlDestino = <?= json_encode(
+                                        $urlRedirecionamento,
+                                        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+                                    ) ?>;
 
-                        <p id="sirene-comando-info"
-                            role="status"
-                            aria-live="polite">
-                            Verificando disponibilidade do controle da sirene...
-                        </p>
-                    </div>
-                </section>
-            </div>
-            <footer>Painel Supervisório SAAE · Controle local da bomba com confirmação</footer>
-        </main>
-    </div>
-    <script src="assets/js/painel.js" defer></script>
+                let segundos = 5;
 
-    <!-- CENTRAL DE ALERTAS -->
-    <div id="alerta-indicador" hidden style="position:fixed;right:18px;bottom:18px;z-index:9998;background:#991b1b;color:white;border-radius:10px;padding:12px 16px;box-shadow:0 5px 25px #0007;">
-        <button id="alerta-reabrir" type="button" style="color:inherit;background:transparent;border:0;cursor:pointer;font-weight:bold;">⚠ Alertas ativos — visualizar</button>
-        <span id="alerta-indicador-contagem"></span>
-    </div>
-    <div id="alerta-modal" class="alerta-overlay" hidden>
+                const intervalo = setInterval(() => {
+                    segundos--;
 
-        <div class="alerta-janela" role="dialog"
-            aria-modal="true"
-            aria-labelledby="alerta-titulo">
+                    document.getElementById('contador').textContent =
+                        segundos;
 
-            <div class="alerta-cabecalho">
-                <h2 id="alerta-titulo">
-                    ⚠ ALERTA CRÍTICO
-                </h2>
-            </div>
+                    if (segundos <= 0) {
+                        clearInterval(intervalo);
+                        window.location.replace(urlDestino);
+                    }
+                }, 1000);
+            </script>
 
-            <div class="alerta-conteudo">
+        <?php else: ?>
+            <form method="POST">
+                <input
+                    type="text"
+                    name="codigo"
+                    maxlength="6"
+                    inputmode="numeric"
+                    pattern="[0-9]{6}"
+                    autocomplete="off"
+                    placeholder="000000"
+                    required>
 
-                <h3 id="alerta-subtitulo">
-                    BOMBA DO CÓRREGO
-                </h3>
+                <button type="submit">
+                    Validar acesso
+                </button>
+            </form>
 
-                <div id="alerta-mensagem" style="white-space:pre-line"></div>
-
-                <p class="alerta-horario">
-                    Ocorrência:
-                    <span id="alerta-data">--</span>
+            <?php if ($mensagem !== ''): ?>
+                <p class="mensagem">
+                    <?= htmlspecialchars($mensagem, ENT_QUOTES, 'UTF-8') ?>
                 </p>
-
-            </div>
-
-            <div class="alerta-rodape">
-
-                <button type="button"
-                    id="alerta-silenciar">
-                    Silenciar por 5 minutos
-                </button>
-
-                <button type="button"
-                    id="alerta-fechar">
-                    Fechar alerta
-                </button>
-
-            </div>
-
-            <p id="alerta-silencio-status"
-                aria-live="polite"></p>
-
-        </div>
-
+            <?php endif; ?>
+        <?php endif; ?>
     </div>
-    <!-- FIM CENTRAL DE ALERTAS -->
-    <p id="alerta-audio-info" aria-live="polite" style="position:fixed;left:16px;bottom:12px;z-index:9997;font-size:12px;color:#d1d5db;"></p>
-
 </body>
 
 </html>

@@ -792,3 +792,124 @@ body {
     -webkit-user-select: text;
     user-select: text;
 }
+/* MODAL DE ACESSO REMOTO */
+
+.modal-token-overlay:not([hidden]) {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.modal-token-overlay[hidden] {
+    display: none !important;
+}
+
+.modal-token-janela {
+    width: min(420px, 92vw);
+    padding: 30px;
+    background: #111c30;
+    color: #fff;
+    border-radius: 16px;
+    text-align: center;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.modal-token-janela h2 {
+    margin-bottom: 12px;
+}
+
+#token-qrcode {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 220px;
+    margin: 20px 0;
+    border: 1px dashed #475569;
+    border-radius: 12px;
+    color: #94a3b8;
+}
+
+#token-fechar {
+    padding: 10px 25px;
+    border: 0;
+    border-radius: 8px;
+    background: #334155;
+    color: white;
+    cursor: pointer;
+}
+#token-qrcode img,
+#token-qrcode canvas {
+    background: #ffffff;
+    padding: 10px;
+    border-radius: 8px;
+}
+
+/* TOKEN DE 6 DÍGITOS */
+
+.token-codigo-container {
+    margin: 20px 0 10px;
+    text-align: center;
+}
+
+.token-codigo-container p {
+    color: #94a3b8;
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+#token-codigo {
+    display: inline-block;
+    padding: 12px 24px;
+    background: #1e293b;
+    border: 1px solid #38bdf8;
+    border-radius: 10px;
+    color: #38bdf8;
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    font-family: monospace;
+}
+
+.toast-token {
+    position: fixed;
+    left: 20px;
+    bottom: 20px;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    background: #166534;
+    color: white;
+    border: 1px solid #22c55e;
+    border-radius: 12px;
+    box-shadow: 0 8px 25px rgba(0,0,0,.3);
+    cursor: pointer;
+}
+
+.toast-token[hidden] {
+    display: none !important;
+}
+
+.toast-token-icone {
+    font-size: 22px;
+}
+
+.toast-token strong,
+.toast-token small {
+    display: block;
+}
+
+.toast-token small {
+    margin-top: 4px;
+    color: #dcfce7;
+    font-size: 12px;
+}
+
+.toast-token:hover {
+    background: #15803d;
+}

@@ -17,8 +17,10 @@ import urllib.request
 import urllib.error
 import atexit
 import json
-
+import shutil
 import webview
+import re
+from datetime import datetime
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
 PHP_EXE = APP_DIR / 'runtime' / 'php' / 'php.exe'
@@ -27,7 +29,12 @@ MQTT_SCRIPT = APP_DIR / 'mqtt' / 'cliente.py'
 INDEX_FILE = APP_DIR / 'index.php'
 HOST = '127.0.0.1'
 PORT = 8090
-URL = f'http://{HOST}:{PORT}/'
+
+# Endereço que o aplicativo Python abrirá
+URL = f'http://{HOST}:{PORT}/index.php?local=1'
+
+# Endereço utilizado para verificar o servidor PHP
+URL_CHECK = f'http://{HOST}:{PORT}/'
 
 CREATE_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 PROCS = []
@@ -37,6 +44,16 @@ STOP_EVENT = threading.Event()
 PROCS_LOCK = threading.RLock()
 LOG_DIR = APP_DIR / 'logs'
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# CONFIGURAÇÃO CLOUDFLARE
+CLOUDFLARED_EXE = (
+    APP_DIR / 'cloudflared.exe'
+    if (APP_DIR / 'cloudflared.exe').is_file()
+    else shutil.which('cloudflared')
+)
+
+CLOUDFLARE_URL_LOCAL = 'http://127.0.0.1:8090'
 
 
 def registrar_launcher(mensagem):
@@ -88,6 +105,17 @@ if len(sys.argv) > 1 and sys.argv[1] == '--mqtt-worker':
 def stop_processes():
     """Encerra somente os processos iniciados por este launcher, incluindo filhos."""
     STOP_EVENT.set()
+    # Encerra explicitamente o túnel e remove o acesso remoto desta execução.
+    # O lock impede disputa com a geração e a expiração do token.
+    try:
+        encerrar_cloudflare('fechamento do launcher')
+    except Exception as erro:
+        registrar_launcher(f'Falha ao encerrar Cloudflare no fechamento: {erro!r}')
+    try:
+        ARQUIVO_ACESSO_REMOTO.unlink(missing_ok=True)
+    except OSError as erro:
+        registrar_launcher(f'Falha ao remover token no fechamento: {erro!r}')
+
     with PROCS_LOCK:
         processes = list(reversed(PROCS))
         PROCS.clear()
@@ -133,9 +161,10 @@ def check_port():
 
 def check_http():
     try:
-        with urllib.request.urlopen(URL, timeout=1.5) as r:
+        with urllib.request.urlopen(URL_CHECK, timeout=1.5) as r:
             return r.status == 200
-    except Exception:
+    except Exception as erro:
+        registrar_launcher(f'Falha na verificação HTTP: {erro!r}')
         return False
 
 
@@ -150,6 +179,243 @@ def start_process(command, cwd):
         PROCS.append(proc)
         return proc
 
+# ==========================================
+# CLOUDFLARE TUNNEL
+# ==========================================
+
+CLOUDFLARE_PROCESSO = None
+CLOUDFLARE_URL = None
+CLOUDFLARE_LOCK = threading.RLock()
+
+
+def encerrar_cloudflare(motivo):
+    """Encerra somente o cloudflared criado por esta instância do launcher."""
+    global CLOUDFLARE_PROCESSO, CLOUDFLARE_URL
+
+    with CLOUDFLARE_LOCK:
+        processo = CLOUDFLARE_PROCESSO
+        if processo is None:
+            CLOUDFLARE_URL = None
+            return True
+
+        if processo.poll() is None:
+            registrar_launcher(f'Encerrando Cloudflare PID {processo.pid}: {motivo}')
+            if os.name == 'nt':
+                try:
+                    subprocess.run(
+                        ['taskkill', '/PID', str(processo.pid), '/T', '/F'],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        stdin=subprocess.DEVNULL,
+                        creationflags=CREATE_FLAGS,
+                        timeout=8,
+                        check=False,
+                    )
+                except (OSError, subprocess.TimeoutExpired) as erro:
+                    registrar_launcher(f'Falha no taskkill do Cloudflare: {erro!r}')
+            else:
+                processo.terminate()
+
+            try:
+                processo.wait(timeout=4)
+            except subprocess.TimeoutExpired:
+                processo.kill()
+                processo.wait(timeout=3)
+
+        if processo.poll() is None:
+            raise RuntimeError(f'Cloudflare PID {processo.pid} continua em execução')
+
+        # Retira o processo já encerrado da lista de filhos supervisionados.
+        with PROCS_LOCK:
+            if processo in PROCS:
+                PROCS.remove(processo)
+        CLOUDFLARE_PROCESSO = None
+        CLOUDFLARE_URL = None
+        registrar_launcher(f'Cloudflare PID {processo.pid} encerrado: {motivo}')
+        return True
+
+from datetime import datetime, timedelta
+import secrets
+
+PRIV_DIR = APP_DIR.parent / 'saae_privado'
+ARQUIVO_ACESSO_REMOTO = APP_DIR.parent / "saae_privado" / "acesso_remoto.json"
+ARQUIVO_LOGIN_LOCAL = PRIV_DIR / 'login_local.json'
+ARQUIVO_BOOT = PRIV_DIR / 'boot.json'
+def preparar_login_local():
+    PRIV_DIR.mkdir(parents=True, exist_ok=True)
+    # One-time token used only by the embedded PyWebView window.
+    segredo = secrets.token_urlsafe(48)
+    ARQUIVO_BOOT.write_text(json.dumps({'id': secrets.token_hex(32)}), encoding='utf-8')
+    ARQUIVO_LOGIN_LOCAL.write_text(
+        json.dumps({'hash': __import__('hashlib').sha256(segredo.encode()).hexdigest()}),
+        encoding='utf-8'
+    )
+    return segredo
+
+
+LOGIN_LOCAL_SEGREDO = None
+
+
+def limpar_acesso_remoto_inicial():
+    global CLOUDFLARE_URL
+
+    try:
+        # Pasta privada fora do diretório do projeto
+        pasta_privada = APP_DIR.parent / "saae_privado"
+        arquivo_token = pasta_privada / "acesso_remoto.json"
+
+        if arquivo_token.is_file():
+            arquivo_token.unlink()
+
+            registrar_launcher(
+                "Token remoto anterior excluído na inicialização."
+            )
+
+        CLOUDFLARE_URL = None
+
+    except Exception as erro:
+        registrar_launcher(
+            f"Erro ao limpar acesso remoto: {erro!r}"
+        )
+        raise
+def consultar_token_ativo():
+    if not ARQUIVO_ACESSO_REMOTO.is_file():
+        return None
+
+    try:
+        dados = json.loads(
+            ARQUIVO_ACESSO_REMOTO.read_text(encoding='utf-8')
+        )
+
+        expiracao = datetime.fromisoformat(dados['expira_em'])
+
+        if datetime.now().astimezone() >= expiracao:
+            return None
+
+        if (
+            CLOUDFLARE_PROCESSO is None
+            or CLOUDFLARE_PROCESSO.poll() is not None
+            or dados.get('url') != CLOUDFLARE_URL
+        ):
+            return None
+
+        return dados
+
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+def salvar_acesso_remoto(url):
+    # Gera um código aleatório de 6 dígitos
+    codigo = f'{secrets.randbelow(1000000):06d}'
+
+    agora = datetime.now().astimezone()
+    expiracao = agora + timedelta(minutes=60)
+
+    dados = {
+        'url': url,
+        'codigo': codigo,
+        'criado_em': agora.isoformat(timespec='seconds'),
+        'expira_em': expiracao.isoformat(timespec='seconds')
+    }
+
+    ARQUIVO_ACESSO_REMOTO.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    temporario = ARQUIVO_ACESSO_REMOTO.with_suffix('.tmp')
+
+    temporario.write_text(
+        json.dumps(dados, indent=4, ensure_ascii=False),
+        encoding='utf-8'
+    )
+
+    temporario.replace(ARQUIVO_ACESSO_REMOTO)
+
+    registrar_launcher('JSON de acesso remoto atualizado')
+
+    return dados
+
+
+def iniciar_cloudflare():
+    global CLOUDFLARE_PROCESSO, CLOUDFLARE_URL
+
+    with CLOUDFLARE_LOCK:
+
+        # Evita iniciar dois túneis simultaneamente.
+        if CLOUDFLARE_PROCESSO is not None:
+            if CLOUDFLARE_PROCESSO.poll() is None:
+                return CLOUDFLARE_URL
+
+        if not CLOUDFLARED_EXE:
+            raise RuntimeError(
+                'cloudflared.exe não encontrado.'
+            )
+
+        CLOUDFLARE_URL = None
+
+        comando = [
+            str(CLOUDFLARED_EXE),
+            'tunnel',
+            '--url',
+            CLOUDFLARE_URL_LOCAL
+        ]
+
+        processo = subprocess.Popen(
+            comando,
+            cwd=str(APP_DIR),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            creationflags=CREATE_FLAGS
+        )
+
+        CLOUDFLARE_PROCESSO = processo
+
+        with PROCS_LOCK:
+            PROCS.append(processo)
+
+        registrar_launcher(
+            f'Cloudflare iniciado, PID {processo.pid}'
+        )
+
+        def ler_saida():
+            global CLOUDFLARE_URL
+
+            padrao = re.compile(
+                r'https://[a-z0-9-]+\.trycloudflare\.com',
+                re.IGNORECASE
+            )
+
+            try:
+                for linha in iter(processo.stderr.readline, b''):
+
+                    mensagem = linha.decode(
+                        'utf-8',
+                        errors='replace'
+                    )
+
+                    encontrado = padrao.search(mensagem)
+
+                    if encontrado and CLOUDFLARE_URL is None:
+                        CLOUDFLARE_URL = encontrado.group(0)
+
+                        registrar_launcher(
+                            'URL HTTPS do Cloudflare capturada'
+                        )
+
+            except Exception as erro:
+                registrar_launcher(
+                    f'Erro na leitura Cloudflare: {erro!r}'
+                )
+
+        threading.Thread(
+            target=ler_saida,
+            daemon=True,
+            name='cloudflare-reader'
+        ).start()
+
+        return CLOUDFLARE_URL
 
 def update_status(message, value):
     def apply():
@@ -227,7 +493,7 @@ def verificar_atualizacao():
 
 
 def check_files():
-    for path in (PHP_EXE, INDEX_FILE, MQTT_SCRIPT):
+    for path in (PHP_EXE, INDEX_FILE, MQTT_SCRIPT, APP_DIR / 'api' / 'proteger_acesso.php'):
         if not path.is_file():
             raise FileNotFoundError(f'Arquivo não encontrado: {path.relative_to(APP_DIR)}')
     if not DB_FILE.is_file():
@@ -239,6 +505,17 @@ def check_files():
 def startup():
     global STARTED
     try:
+         # Remove o token da execução anterior
+        update_status('Limpando acesso remoto anterior...', 5)
+        limpar_acesso_remoto_inicial()
+        global LOGIN_LOCAL_SEGREDO
+        LOGIN_LOCAL_SEGREDO = preparar_login_local()
+        threading.Thread(
+            target=monitorar_expiracao_token,
+            daemon=True,
+            name="MonitorExpiracaoToken"
+        ).start()
+        
         update_status('Verificando internet local...', 10)
         # Mantém o splash aberto e repete a verificação a cada 10 segundos.
         # O intervalo é contado entre o término de uma tentativa falha
@@ -290,7 +567,7 @@ def startup():
         update_status('Iniciando servidor PHP...', 70)
         if check_port():
             raise RuntimeError(f'A porta {PORT} já está ocupada. Feche o iniciar.bat ou outro servidor nessa porta.')
-        php_proc = start_process([str(PHP_EXE), '-S', f'{HOST}:{PORT}', '-t', str(APP_DIR)], APP_DIR)
+        php_proc = start_process([str(PHP_EXE), '-d', f'auto_prepend_file={APP_DIR / "api" / "proteger_acesso.php"}', '-S', f'{HOST}:{PORT}', '-t', str(APP_DIR)], APP_DIR)
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             if php_proc.poll() is not None:
@@ -344,14 +621,117 @@ def focus_panel_window():
     return bool(user32.SetForegroundWindow(hwnd))
 
 
+def monitorar_expiracao_token():
+    while not STOP_EVENT.wait(5):
+        try:
+            with CLOUDFLARE_LOCK:
+                if not ARQUIVO_ACESSO_REMOTO.is_file():
+                    continue
+                dados = json.loads(ARQUIVO_ACESSO_REMOTO.read_text(encoding='utf-8'))
+                expiracao = datetime.fromisoformat(dados['expira_em'])
+                if datetime.now().astimezone() < expiracao:
+                    continue
+
+                registrar_launcher('Token expirado; encerrando acesso remoto.')
+                encerrar_cloudflare('expiração do token')
+                ARQUIVO_ACESSO_REMOTO.unlink(missing_ok=True)
+                registrar_launcher('Token expirado removido.')
+        except Exception as erro:
+            registrar_launcher(f'Erro na expiração do token: {erro!r}')
+
+
+class SAAEApi:
+    def revogar_acesso_remoto(self):
+        """Revoga o token e encerra o túnel somente a partir do painel local."""
+        try:
+            janela = getattr(self, '_window', None)
+            endereco = janela.get_current_url() if janela is not None else None
+            # A ponte Python não pode autorizar uma página externa que tenha
+            # sido carregada na janela do aplicativo.
+            from urllib.parse import urlsplit
+            url = urlsplit(endereco or '')
+            if (url.scheme != 'http' or url.hostname != HOST or
+                    url.port != PORT or url.path != '/dashboard.php'):
+                return {'sucesso': False, 'mensagem': 'Revogação permitida somente no painel local.'}
+
+            with CLOUDFLARE_LOCK:
+                # Se o encerramento falhar, não apague o registro: assim não
+                # informamos uma revogação bem-sucedida com o túnel ativo.
+                encerrar_cloudflare('revogação manual pelo painel local')
+                ARQUIVO_ACESSO_REMOTO.unlink(missing_ok=True)
+                registrar_launcher('Acesso remoto revogado manualmente; JSON removido.')
+                return {'sucesso': True, 'mensagem': 'Acesso remoto revogado.'}
+        except Exception as erro:
+            registrar_launcher(f'Falha na revogação manual: {erro!r}')
+            return {'sucesso': False, 'mensagem': 'Não foi possível revogar o acesso. Consulte o log do launcher.'}
+
+    def autorizar_local(self):
+        # Never hand the secret to a remotely navigated page.
+        if self._window is None:
+            raise RuntimeError('Janela local indisponível')
+        current = self._window.get_current_url()
+        if not current or not current.startswith(f'http://{HOST}:{PORT}/index.php'):
+            raise RuntimeError('Autorização disponível somente na entrada local')
+        if not LOGIN_LOCAL_SEGREDO:
+            raise RuntimeError('Credencial local indisponível')
+        return LOGIN_LOCAL_SEGREDO
+
+    def iniciar_acesso_remoto(self):
+        try:
+            with CLOUDFLARE_LOCK:
+                dados_ativos = consultar_token_ativo()
+
+                if dados_ativos:
+                    return {
+                        'sucesso': True,
+                        'ja_ativo': True,
+                        'url': dados_ativos['url'],
+                        'codigo': dados_ativos['codigo'],
+                        'expira_em': dados_ativos['expira_em']
+                    }
+
+                url = iniciar_cloudflare()
+
+                if not url:
+                    return {
+                        'sucesso': False,
+                        'mensagem': 'Cloudflare iniciando. Aguarde alguns segundos.'
+                    }
+
+                dados = salvar_acesso_remoto(url)
+
+                return {
+                    'sucesso': True,
+                    'ja_ativo': False,
+                    'url': dados['url'],
+                    'codigo': dados['codigo'],
+                    'expira_em': dados['expira_em']
+                }
+
+        except Exception as erro:
+            registrar_launcher(f'Erro no acesso remoto: {erro!r}')
+            return {
+                'sucesso': False,
+                'mensagem': str(erro)
+            }
+
+
 def open_panel():
     splash.withdraw()
     splash.destroy()
     try:
-        window = webview.create_window('SAAE | Painel Supervisório', URL,
-                                       width=1440, height=900,
-                                       min_size=(900, 650), resizable=True,
-                                       hidden=True)
+        api = SAAEApi()
+        window = webview.create_window(
+            'SAAE | Painel Supervisório',
+            URL,
+            width=1440,
+            height=900,
+            min_size=(900, 650),
+            resizable=True,
+            hidden=True,
+            js_api=api
+        )
+        api._window = window
         def show_window():
             try:
                 window.maximize()
