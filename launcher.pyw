@@ -48,8 +48,8 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # CONFIGURAÇÃO CLOUDFLARE
 CLOUDFLARED_EXE = (
-    APP_DIR / 'cloudflared.exe'
-    if (APP_DIR / 'cloudflared.exe').is_file()
+    APP_DIR / 'dependencias' / 'cloudflared.exe'
+    if (APP_DIR / 'dependencias' / 'cloudflared.exe').is_file()
     else shutil.which('cloudflared')
 )
 
