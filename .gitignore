@@ -3,8 +3,8 @@
 # =====================================
 
 # Credenciais Adafruit IO e configurações
-/config/comandos.php
-/mqtt/config.py
+#/config/comandos.php
+#/mqtt/config.py
 /runtime/php
 .env
 .env.*

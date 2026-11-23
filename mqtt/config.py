@@ -1,0 +1,2 @@
+USUARIO = "usuario"
+CHAVE = "chave"
