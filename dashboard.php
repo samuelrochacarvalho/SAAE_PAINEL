@@ -128,7 +128,10 @@ $titulo = 'SAAE | Painel Reservatorios';
                     </div>
                 </section>
             </div>
-            <footer>Painel Supervisório SAAE · Controle local da bomba com confirmação</footer>
+            <footer>Licensa de uso para: SAAE - Trombas</footer>
+            <footer>Desenvolvido por Samuel Rocha — 2026.
+
+Todos os direitos reservados sobre as contribuições originais, na extensão permitida pela legislação aplicável.</footer>
         </main>
     </div>
     <script src="assets/js/painel.js" defer></script>

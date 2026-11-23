@@ -432,7 +432,7 @@ def show_error(message):
             title_label.config(text='Falha na inicialização')
             status_label.config(text=message)
             percent_label.config(text='')
-            retry_button.pack(pady=8)
+            retry_button.place(x=36, y=377)
     splash.after(0, apply)
 
 
@@ -612,7 +612,7 @@ def startup():
 
         if STOP_EVENT.is_set():
             return
-        update_status('Abrindo Painel Supervisório SAAE...', 95)
+        update_status('Abrindo Painel...', 95)
         STARTED = True
         update_status('Sistema pronto!', 100)
         splash.after(200, open_panel)
@@ -642,7 +642,7 @@ def focus_panel_window():
     user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
     user32.SetForegroundWindow.restype = wintypes.BOOL
 
-    hwnd = user32.FindWindowW(None, 'SAAE | Painel Supervisório')
+    hwnd = user32.FindWindowW(None, 'SAAE | Painel de Comandos e Níveis')
     if not hwnd:
         return False
 
@@ -754,7 +754,7 @@ def open_panel():
     try:
         api = SAAEApi()
         window = webview.create_window(
-            'SAAE | Painel Supervisório',
+            'SAAE | Painel de Comandos e Níveis',
             URL,
             width=1440,
             height=900,
@@ -800,32 +800,49 @@ def close_splash():
 
 
 splash = tk.Tk()
-splash.title('SAAE | Painel Supervisório')
-splash.configure(bg='#0b1220')
+splash.title('SAAE | Painel de Comandos e Níveis')
+splash.configure(bg='#071b30')
 splash.resizable(False, False)
-w, h = 520, 300
+w, h = 800, 450
 x = (splash.winfo_screenwidth() - w) // 2
 y = (splash.winfo_screenheight() - h) // 2
 splash.geometry(f'{w}x{h}+{x}+{y}')
 splash.protocol('WM_DELETE_WINDOW', close_splash)
 
-title_label = tk.Label(splash, text='SAAE SUPERVISÓRIO', bg='#0b1220', fg='#e8f0fa',
-                       font=('Segoe UI', 21, 'bold'))
-title_label.pack(pady=(36, 8))
-tk.Label(splash, text='Inicializando sistema de monitoramento', bg='#0b1220',
-         fg='#94a3b8', font=('Segoe UI', 11)).pack(pady=(0, 22))
-status_label = tk.Label(splash, text='Preparando inicialização...', bg='#0b1220',
-                        fg='#38bdf8', font=('Segoe UI', 10), wraplength=460)
-status_label.pack(pady=5)
+# Fundo preparado na proporção da janela, sem dependências externas.
+# Manter a referência da imagem evita que o Tkinter a descarte.
+FUNDO_LAUNCHER = APP_DIR / 'assets' / 'launcher_fundo.png'
+if FUNDO_LAUNCHER.is_file():
+    try:
+        splash.fundo_imagem = tk.PhotoImage(file=str(FUNDO_LAUNCHER))
+        fundo_label = tk.Label(splash, image=splash.fundo_imagem, borderwidth=0)
+        fundo_label.place(x=0, y=0, width=w, height=h)
+    except tk.TclError as erro:
+        registrar_launcher(f'Imagem do launcher indisponível: {erro!r}')
+
+# Elementos posicionados na área livre à esquerda da ilustração.
+COR_FUNDO_TEXTO = '#061d34'
+title_label = tk.Label(splash, text='Controle de Comandos e Níveis', bg=COR_FUNDO_TEXTO,
+                       fg='#e8f0fa', font=('Segoe UI', 20, 'bold'))
+title_label.place(x=34, y=91)
+subtitle_label = tk.Label(splash, text='Inicializando sistema de monitoramento',
+                          bg=COR_FUNDO_TEXTO, fg='#a8c5dd', font=('Segoe UI', 10))
+subtitle_label.place(x=36, y=137)
+status_label = tk.Label(splash, text='Preparando inicialização...',
+                        bg=COR_FUNDO_TEXTO, fg='#38bdf8', font=('Segoe UI', 10),
+                        wraplength=355, justify='left', anchor='w')
+status_label.place(x=36, y=244, width=355, height=52)
 style = ttk.Style()
 style.theme_use('clam')
-style.configure('SAAE.Horizontal.TProgressbar', troughcolor='#1e293b', background='#38bdf8',
-                bordercolor='#1e293b', lightcolor='#38bdf8', darkcolor='#38bdf8')
-progress = ttk.Progressbar(splash, orient='horizontal', length=410, maximum=100,
+style.configure('SAAE.Horizontal.TProgressbar', troughcolor='#1e293b',
+                background='#38bdf8', bordercolor='#1e293b',
+                lightcolor='#38bdf8', darkcolor='#38bdf8')
+progress = ttk.Progressbar(splash, orient='horizontal', length=350, maximum=100,
                            style='SAAE.Horizontal.TProgressbar')
-progress.pack(pady=13)
-percent_label = tk.Label(splash, text='0%', bg='#0b1220', fg='#94a3b8', font=('Segoe UI', 10))
-percent_label.pack()
+progress.place(x=36, y=309, width=350, height=15)
+percent_label = tk.Label(splash, text='0%', bg=COR_FUNDO_TEXTO,
+                         fg='#c2d6e7', font=('Segoe UI', 10))
+percent_label.place(x=36, y=333)
 retry_button = tk.Button(splash, text='Fechar', command=close_splash,
                          bg='#1b344d', fg='white', borderwidth=0, padx=20)
 threading.Thread(target=startup, daemon=True).start()
