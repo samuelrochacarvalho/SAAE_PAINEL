@@ -11,17 +11,14 @@ if exist "%REPORT%" (echo Nao foi possivel atualizar o relatorio. & pause & exit
 echo ==========================================
 echo SAAE PAINEL - Instalacao de dependencias
 echo ==========================================
-call :preparar_pacote
+call :preparar_pasta
+if errorlevel 1 goto :windows
 call :preparar_vc
 call :preparar_webview
 call :detectar_python
-if not defined PY (
-    echo Instalando Python local...
-    if exist "dependencias\python-3.15.2-amd64.exe" (
-        start "" /wait "dependencias\python-3.15.2-amd64.exe" /quiet InstallAllUsers=0 PrependPath=1 Include_pip=1 Include_tcltk=1 Include_launcher=1
-    ) else call :pendencia "Instalador local python-3.15.2-amd64.exe ausente."
-    call :detectar_python
-)
+if not defined PY call :instalar_python
+if defined PY echo [OK] Python compativel detectado.
+call :preparar_cloudflared
 if not defined PY goto :sem_python
 %PY% --version
 %PY% -m pip --version >nul 2>&1
@@ -89,7 +86,7 @@ for %%F in ("launcher.pyw" "atualizador.pyw" "index.php" "mqtt\cliente.py" "mqtt
         call :pendencia "Arquivo ausente: %%~F. Restaure do projeto ou configure localmente."
     )
 )
-if exist "dependencias\cloudflared.exe" (echo [OK] Cloudflared local) else call :pendencia "Arquivo do projeto ausente: dependencias/cloudflared.exe. Baixe o pacote de dependencias da Release."
+if exist "dependencias\cloudflared.exe" (echo [OK] Cloudflared local) else call :pendencia "Arquivo do projeto ausente: dependencias/cloudflared.exe. Confira cloudflared.zip na Release."
 echo.
 call :preparar_banco
 call :criar_atalho
@@ -241,7 +238,9 @@ exit /b %errorlevel%
 :preparar_vc
 call :verificar_vc
 if not errorlevel 1 (echo [OK] Visual C++ x64 detectado & exit /b 0)
-if not exist "dependencias\VC_redist.x64.exe" (call :pendencia "Instalador local VC_redist.x64.exe ausente." & exit /b 1)
+call :obter_dependencia VC_redist.x64.zip VC_redist.x64.exe
+if errorlevel 1 exit /b 1
+echo Instalando Visual C++ x64...
 start "" /wait "dependencias\VC_redist.x64.exe" /install /quiet /norestart
 if "%errorlevel%"=="3010" call :pendencia "Visual C++ instalado: reinicie o Windows e execute novamente."
 call :verificar_vc
@@ -255,7 +254,9 @@ exit /b %errorlevel%
 :preparar_webview
 call :verificar_webview
 if not errorlevel 1 (echo [OK] WebView2 detectado & exit /b 0)
-if not exist "dependencias\MicrosoftEdgeWebView2.exe" (call :pendencia "Instalador local MicrosoftEdgeWebView2.exe ausente." & exit /b 1)
+call :obter_dependencia MicrosoftEdgeWebView2.zip MicrosoftEdgeWebView2.exe
+if errorlevel 1 exit /b 1
+echo Instalando WebView2...
 start "" /wait "dependencias\MicrosoftEdgeWebView2.exe" /silent /install
 call :verificar_webview
 if errorlevel 1 (call :pendencia "WebView2 nao detectado apos instalacao. Execute o instalador local manualmente." & exit /b 1)
@@ -272,21 +273,35 @@ if errorlevel 1 (call :pendencia "Falha ao criar atalho SAAE PAINEL na area de t
 echo [OK] Atalho SAAE PAINEL criado ou atualizado.
 exit /b 0
 
-:preparar_pacote
+:preparar_pasta
+if exist "dependencias\" (echo [OK] Pasta dependencias encontrada. & exit /b 0)
+mkdir "dependencias"
+if not exist "dependencias\" (call :pendencia "Nao foi possivel criar a pasta dependencias." & exit /b 1)
+echo [OK] Pasta dependencias criada.
+exit /b 0
+
+:preparar_cloudflared
+call :obter_dependencia cloudflared.zip cloudflared.exe
+if errorlevel 1 exit /b 1
+echo [OK] Cloudflared disponivel. Nenhuma instalacao necessaria.
+exit /b 0
+
+:obter_dependencia
+set "DEP_ZIP=%~1"
+set "DEP_EXE=%~2"
+set "DEP_URL=https://github.com/samuelrochacarvalho/SAAE_PAINEL/releases/download/dependencias-v1.0/%~1"
+if exist "dependencias\%~2" for %%F in ("dependencias\%~2") do if %%~zF GTR 0 (echo [OK] Executavel local: %~2 & exit /b 0)
 echo.
-echo Verificando necessidade de baixar dependencias...
-set "NEED_PACKAGE=0"
-call :verificar_vc
-if errorlevel 1 if not exist "dependencias\VC_redist.x64.exe" set "NEED_PACKAGE=1"
-call :verificar_webview
-if errorlevel 1 if not exist "dependencias\MicrosoftEdgeWebView2.exe" set "NEED_PACKAGE=1"
+echo Preparando %~2...
+powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; $dest=Join-Path (Get-Location).Path 'dependencias'; $zip=Join-Path $dest $env:DEP_ZIP; $partial=$zip+'.part'; $target=Join-Path $dest $env:DEP_EXE; $stage=Join-Path $dest ('extracao_'+[guid]::NewGuid().ToString('N')); try { if(-not (Test-Path -LiteralPath $zip -PathType Leaf)){ $curl=Join-Path $env:SystemRoot 'System32\curl.exe'; if(-not (Test-Path -LiteralPath $curl -PathType Leaf)){throw 'curl.exe nativo indisponivel'}; Write-Host ('Baixando '+$env:DEP_ZIP+' (Total, Received, Speed, Time Left):'); & $curl --disable --location --fail --retry 3 --retry-delay 2 --connect-timeout 30 --continue-at - --output $partial $env:DEP_URL; $rc=$LASTEXITCODE; if($rc -eq 33 -or $rc -eq 36){Write-Host 'Retomada recusada; reiniciando download.'; Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue; & $curl --disable --location --fail --retry 3 --retry-delay 2 --connect-timeout 30 --output $partial $env:DEP_URL; $rc=$LASTEXITCODE}; if($rc -ne 0){throw ('Falha cURL: '+$rc+'; parcial preservado')}; Move-Item -LiteralPath $partial -Destination $zip; Write-Host ('Download concluido: {0:N2} MB' -f ((Get-Item -LiteralPath $zip).Length/1MB)) } else {Write-Host ('Utilizando ZIP local: '+$env:DEP_ZIP)}; Write-Host ('Extraindo '+$env:DEP_ZIP+'...'); Expand-Archive -LiteralPath $zip -DestinationPath $stage; $src=Join-Path $stage $env:DEP_EXE; if(-not (Test-Path -LiteralPath $src -PathType Leaf)){$src=Join-Path (Join-Path $stage 'dependencias') $env:DEP_EXE}; if(-not (Test-Path -LiteralPath $src -PathType Leaf) -or (Get-Item -LiteralPath $src).Length -eq 0){throw 'Executavel ausente ou vazio no ZIP'}; Move-Item -LiteralPath $src -Destination $target -Force; if((Get-Item -LiteralPath $target).Length -eq 0){throw 'Executavel extraido vazio'}; Remove-Item -LiteralPath $zip -Force; if(Test-Path -LiteralPath $partial){Remove-Item -LiteralPath $partial -Force}; Write-Host ('[OK] Executavel preservado: '+$env:DEP_EXE) } catch { Write-Host $_; exit 1 } finally { if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue} }"
+if errorlevel 1 (call :pendencia "Falha ao obter %~1. Confira internet, Release e ZIP local. Se o ZIP estiver corrompido, remova-o e tente novamente." & exit /b 1)
+exit /b 0
+
+:instalar_python
+call :obter_dependencia python-3.15.2-amd64.zip python-3.15.2-amd64.exe
+if errorlevel 1 exit /b 1
+echo Instalando Python local...
+start "" /wait "dependencias\python-3.15.2-amd64.exe" /quiet InstallAllUsers=0 PrependPath=1 Include_pip=1 Include_tcltk=1 Include_launcher=1
 call :detectar_python
-if not defined PY if not exist "dependencias\python-3.15.2-amd64.exe" set "NEED_PACKAGE=1"
-if not exist "dependencias\cloudflared.exe" set "NEED_PACKAGE=1"
-if "%NEED_PACKAGE%"=="0" (echo [OK] Nenhum download do pacote necessario. & exit /b 0)
-set "DEP_URL=https://github.com/samuelrochacarvalho/SAAE_PAINEL/releases/download/dependencias-v1.0/dependencias.zip"
-echo Baixando e extraindo dependencias. Aguarde...
-powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; $root=(Get-Location).Path; $dest=Join-Path $root 'dependencias'; $stage=Join-Path ([IO.Path]::GetTempPath()) ('saae_dep_'+[guid]::NewGuid().ToString('N')); try { New-Item -ItemType Directory -Path $stage | Out-Null; $zip=Join-Path $stage 'dependencias.zip'; $out=Join-Path $stage 'extraido'; if(Test-Path -LiteralPath (Join-Path $root 'dependencias.zip') -PathType Leaf){ Write-Host 'Utilizando dependencias.zip local.'; Copy-Item -LiteralPath (Join-Path $root 'dependencias.zip') -Destination $zip } else { $curl=Join-Path $env:SystemRoot 'System32\curl.exe'; if(-not (Test-Path -LiteralPath $curl -PathType Leaf)){throw 'curl.exe nativo do Windows nao encontrado'}; $partial=Join-Path $root 'dependencias.zip.part'; Write-Host 'Download via cURL (Total, Received, Speed, Time Left):'; & $curl --disable --location --fail --retry 3 --retry-delay 2 --connect-timeout 30 --continue-at - --output $partial $env:DEP_URL; $rc=$LASTEXITCODE; if($rc -ne 0){if($rc -eq 33 -or $rc -eq 36){Write-Host 'Servidor recusou retomada; reiniciando download.'; Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue; & $curl --disable --location --fail --retry 3 --retry-delay 2 --connect-timeout 30 --output $partial $env:DEP_URL; $rc=$LASTEXITCODE}; if($rc -ne 0){throw ('Falha cURL: '+$rc+'; download parcial preservado')}}; if(-not (Test-Path -LiteralPath $partial -PathType Leaf)){throw 'Download nao encontrado'}; Copy-Item -LiteralPath $partial -Destination $zip; Write-Host ('Download concluido: {0:N2} MB' -f ((Get-Item -LiteralPath $zip).Length/1MB)) }; Expand-Archive -LiteralPath $zip -DestinationPath $out; $files=@('cloudflared.exe','MicrosoftEdgeWebView2.exe','python-3.15.2-amd64.exe','VC_redist.x64.exe'); $src=Join-Path $out 'dependencias'; if(-not (Test-Path -LiteralPath $src -PathType Container)){$src=$out}; foreach($f in $files){$p=Join-Path $src $f; if(-not (Test-Path -LiteralPath $p -PathType Leaf) -or (Get-Item -LiteralPath $p).Length -eq 0){throw ('Arquivo ausente ou vazio no ZIP: '+$f)}}; New-Item -ItemType Directory -Path $dest -Force | Out-Null; foreach($f in $files){$target=Join-Path $dest $f; if(-not (Test-Path -LiteralPath $target -PathType Leaf)){Copy-Item -LiteralPath (Join-Path $src $f) -Destination $target}}; if($partial){Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue} } catch { Write-Host $_; exit 1 } finally { if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue} }"
-if errorlevel 1 (call :pendencia "Falha ao baixar ou extrair dependencias.zip. Confira internet e Release dependencias-v1.0 no GitHub." & exit /b 1)
-echo [OK] Pacote de dependencias preparado.
+if not defined PY exit /b 1
 exit /b 0

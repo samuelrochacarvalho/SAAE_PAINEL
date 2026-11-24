@@ -3,6 +3,9 @@ Teste em uma copia do projeto. Nao implementa assinatura digital.
 """
 import ctypes
 import io
+import shutil
+import tempfile
+import stat
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -25,10 +28,9 @@ VERSAO_ALTERNATIVA = f'https://github.com/{REPO}/raw/refs/heads/main/versao.json
 MAX_ZIP = 150 * 1024 * 1024
 MAX_FILE = 70 * 1024 * 1024
 MAX_TOTAL = 200 * 1024 * 1024
-PROTECTED_FILES = {'.gitignore', 'atualizador.pyw', 'mqtt/config.py', 'config/comandos.php'}
-PROTECTED_DIRS = ('.git/', 'dados/', 'runtime/', 'config/', '__pycache__/', '.venv/', 'venv/')
-ALLOWED_DIRS = ('api/', 'assets/', 'mqtt/', 'dependencias/')
-ALLOWED_FILES = {'launcher.pyw', 'launcher.py', 'index.php', 'dashboard.php', 'validar_acesso.php'}
+PROTECTED_FILES = {'atualizador.pyw', 'mqtt/config.py', 'config/comandos.php', 'atenção.txt'}
+PROTECTED_DIRS = {'.git', 'dados', 'runtime', 'dependencias', 'logs', '__pycache__', '.venv', 'venv'}
+REQUIRED = {'launcher.pyw', 'index.php', 'versao.json'}
 
 
 def request_bytes(url, limit=MAX_ZIP):
@@ -83,11 +85,19 @@ def wait_for_parent(pid):
 
 
 def permitted(relative):
-    if relative in PROTECTED_FILES or any(relative.startswith(p) for p in PROTECTED_DIRS):
-        return False
-    if relative in ALLOWED_FILES:
-        return True
-    return any(relative.startswith(p) for p in ALLOWED_DIRS) and not relative.startswith('mqtt/config.py')
+    parts = relative.casefold().split('/')
+    return not any(relative.casefold() == p or relative.casefold().startswith(p + '/') for p in PROTECTED_FILES) and not any(
+        part in PROTECTED_DIRS for part in parts)
+
+
+def safe_parts(name):
+    parts = name.rstrip('/').split('/')
+    for part in parts:
+        if (not part or part in ('.', '..') or part.endswith(('.', ' '))
+                or re.search(r'[\\:<>"|?*\x00-\x1f]', part)
+                or re.fullmatch(r'(?i)(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])', part.split('.')[0])):
+            raise ValueError('Caminho inseguro no ZIP: ' + name)
+    return parts
 
 
 def extract_plan(archive, expected_version):
@@ -95,43 +105,116 @@ def extract_plan(archive, expected_version):
         entries = zf.infolist()
         if len(entries) > 2000:
             raise ValueError('Pacote com arquivos demais.')
-        files, total = {}, 0
+        files, total, seen, roots = {}, 0, set(), set()
         for entry in entries:
+            parts = safe_parts(entry.filename)
+            roots.add(parts[0])
             if entry.is_dir():
                 continue
-            parts = PurePosixPath(entry.filename).parts
-            if len(parts) < 2 or any(p in ('', '.', '..') for p in parts):
-                raise ValueError('Caminho invalido no ZIP.')
+            if len(parts) < 2:
+                raise ValueError('Estrutura invalida no ZIP.')
             rel = '/'.join(parts[1:])
-            if not rel or '\\' in rel or ':' in rel or rel.startswith('/'):
-                raise ValueError('Caminho inseguro no ZIP.')
-            # Impede links simbolicos Unix.
+            if not permitted(rel):
+                continue
             if (entry.external_attr >> 16) & 0o170000 == 0o120000:
                 raise ValueError('Link simbolico nao permitido.')
+            key = rel.casefold()
+            if key in seen:
+                raise ValueError('Arquivo duplicado: ' + rel)
+            seen.add(key)
             if entry.file_size > MAX_FILE:
                 raise ValueError('Arquivo grande demais: ' + rel)
             total += entry.file_size
             if total > MAX_TOTAL:
                 raise ValueError('Pacote descompactado excede o limite.')
-            if rel == 'versao.json' or permitted(rel):
-                if rel in files:
-                    raise ValueError('Arquivo duplicado: ' + rel)
-                files[rel] = zf.read(entry)
-        if 'versao.json' not in files:
-            raise ValueError('Pacote nao contem versao.json.')
+            files[rel] = zf.read(entry)
+        if len(roots) != 1 or not REQUIRED <= files.keys():
+            raise ValueError('Pacote incompleto ou estrutura invalida.')
+        for key in seen:
+            parts = key.split('/')
+            if any('/'.join(parts[:i]) in seen for i in range(1, len(parts))):
+                raise ValueError('Conflito entre arquivo e pasta.')
         manifest = json.loads(files['versao.json'].decode('utf-8-sig'))
         if manifest.get('versao') != expected_version:
             raise ValueError('Versao do pacote difere da versao consultada.')
-        if 'launcher.pyw' not in files or 'index.php' not in files:
-            raise ValueError('Pacote incompleto: launcher.pyw ou index.php ausente.')
-        if len(files) < 3:
-            raise ValueError('Nenhum arquivo de sistema encontrado.')
         return files
 
 
+def check_link(path):
+    st = path.lstat()
+    if path.is_symlink() or getattr(st, 'st_file_attributes', 0) & 0x400:
+        raise ValueError('Link ou junction nao permitido: ' + str(path))
+
+
+def local_files(base):
+    result = []
+    def visit(folder):
+        for path in folder.iterdir():
+            rel = path.relative_to(base).as_posix()
+            if not permitted(rel):
+                continue
+            check_link(path)
+            if path.is_dir():
+                visit(path)
+            elif path.is_file():
+                result.append(rel)
+            else:
+                raise ValueError('Arquivo local especial: ' + rel)
+    visit(base)
+    return result
+
+
+def clean_update(base, files, notify):
+    # Backup fora da raiz servida pelo PHP. Nao inclui dados protegidos.
+    backup = Path(tempfile.mkdtemp(prefix='SAAE_backup_', dir=base.parent))
+    old = local_files(base)
+    written = []
+    removed = []
+    try:
+        for name in old:
+            dest = backup / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(base / name, dest)
+        notify('Backup concluido. Renovando arquivos...', 72)
+        for name in old:
+            if name == 'versao.json':
+                continue
+            (base / name).unlink()
+            removed.append(name)
+        # Pastas vazias podem permanecer; nenhum arquivo obsoleto permanece.
+        changes = sorted(name for name in files if name != 'versao.json')
+        for index, name in enumerate(changes, 1):
+            notify('Instalando: ' + name, 73 + int(22 * index / len(changes)))
+            atomic_write(base / name, files[name])
+            written.append(name)
+        for name in changes:
+            if (base / name).read_bytes() != files[name]:
+                raise IOError('Validacao falhou: ' + name)
+        atomic_write(base / 'versao.json', files['versao.json'])
+        written.append('versao.json')
+    except Exception as error:
+        try:
+            for name in reversed(written):
+                (base / name).unlink(missing_ok=True)
+            for name in set(removed + written) & set(old):
+                atomic_write(base / name, (backup / name).read_bytes())
+        except Exception as restore_error:
+            raise RuntimeError(f'Falha na restauracao: {restore_error}. Backup: {backup}') from error
+        raise RuntimeError(f'Atualizacao cancelada; arquivos anteriores preservados ou restaurados. Backup: {backup}. {error}') from error
+    else:
+        shutil.rmtree(backup, ignore_errors=True)
+
+
 def atomic_write(path, data):
+    for parent in path.parents:
+        if parent.exists():
+            check_link(parent)
+    if path.exists():
+        check_link(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + '.saae-novo')
+    fd, temp_name = tempfile.mkstemp(prefix='.saae-novo-', dir=path.parent)
+    os.close(fd)
+    tmp = Path(temp_name)
     try:
         with tmp.open('wb') as stream:
             stream.write(data)
@@ -253,18 +336,12 @@ class Updater:
 
             self.show('Aguardando encerramento do launcher...', 65)
             wait_for_parent(self.parent_pid)
-            changes = [(name, data) for name, data in files.items() if name != 'versao.json']
-            changes.sort(key=lambda item: item[0])
-            for index, (name, data) in enumerate(changes, 1):
-                self.show(f'Instalando: {name}', 65 + int(28 * index / len(changes)),
-                          f'{index} de {len(changes)} arquivos')
-                changed = True
-                atomic_write(BASE / Path(name), data)
-            atomic_write(BASE / 'versao.json', files['versao.json'])
+            changed = True
+            clean_update(BASE, files, self.show)
             self.show('Atualizacao concluida.', 100, f'Versao instalada: {remote}')
             self.root.after(0, lambda: self.countdown(5))
         except Exception as error:
-            extra = (' Instalacao pode estar parcial; nao reinicie automaticamente.'
+            extra = (' Confira a mensagem de recuperacao antes de reiniciar.'
                      if changed else ' Nenhum arquivo foi substituido.')
             self.finish(False, f'Falha: {error}.{extra}')
 
