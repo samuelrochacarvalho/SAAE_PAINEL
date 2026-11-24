@@ -1,2 +1,0 @@
-USUARIO = "usuario"
-CHAVE = "chave"
