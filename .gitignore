@@ -9,7 +9,6 @@
 
 # Dependências externas
 /dependencias/
-/dependencias.zip
 .env
 .env.*
 
