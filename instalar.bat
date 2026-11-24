@@ -11,6 +11,7 @@ if exist "%REPORT%" (echo Nao foi possivel atualizar o relatorio. & pause & exit
 echo ==========================================
 echo SAAE PAINEL - Instalacao de dependencias
 echo ==========================================
+call :preparar_pacote
 call :preparar_vc
 call :preparar_webview
 call :detectar_python
@@ -88,7 +89,7 @@ for %%F in ("launcher.pyw" "atualizador.pyw" "index.php" "mqtt\cliente.py" "mqtt
         call :pendencia "Arquivo ausente: %%~F. Restaure do projeto ou configure localmente."
     )
 )
-if exist "dependencias\cloudflared.exe" (echo [OK] Cloudflared local) else call :pendencia "Arquivo do projeto ausente: dependencias/cloudflared.exe. Restaure do projeto."
+if exist "dependencias\cloudflared.exe" (echo [OK] Cloudflared local) else call :pendencia "Arquivo do projeto ausente: dependencias/cloudflared.exe. Baixe o pacote de dependencias da Release."
 echo.
 call :preparar_banco
 call :criar_atalho
@@ -269,4 +270,23 @@ if not exist "C:\SAAE_PAINEL\icone.ico" (call :pendencia "Atalho nao criado: C:\
 powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop'; $desktop=[Environment]::GetFolderPath('DesktopDirectory'); if (-not (Test-Path -LiteralPath $desktop -PathType Container)) { throw 'Area de trabalho indisponivel' }; $path=Join-Path $desktop 'SAAE PAINEL.lnk'; $ws=New-Object -ComObject WScript.Shell; $atalho=$ws.CreateShortcut($path); $atalho.TargetPath='C:\SAAE_PAINEL\launcher.pyw'; $atalho.Arguments=''; $atalho.WorkingDirectory='C:\SAAE_PAINEL'; $atalho.IconLocation='C:\SAAE_PAINEL\icone.ico,0'; $atalho.Description='SAAE PAINEL'; $atalho.Save(); if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'Atalho nao encontrado' }"
 if errorlevel 1 (call :pendencia "Falha ao criar atalho SAAE PAINEL na area de trabalho." & exit /b 1)
 echo [OK] Atalho SAAE PAINEL criado ou atualizado.
+exit /b 0
+
+:preparar_pacote
+echo.
+echo Verificando necessidade de baixar dependencias...
+set "NEED_PACKAGE=0"
+call :verificar_vc
+if errorlevel 1 if not exist "dependencias\VC_redist.x64.exe" set "NEED_PACKAGE=1"
+call :verificar_webview
+if errorlevel 1 if not exist "dependencias\MicrosoftEdgeWebView2.exe" set "NEED_PACKAGE=1"
+call :detectar_python
+if not defined PY if not exist "dependencias\python-3.15.2-amd64.exe" set "NEED_PACKAGE=1"
+if not exist "dependencias\cloudflared.exe" set "NEED_PACKAGE=1"
+if "%NEED_PACKAGE%"=="0" (echo [OK] Nenhum download do pacote necessario. & exit /b 0)
+set "DEP_URL=https://github.com/samuelrochacarvalho/SAAE_PAINEL/releases/download/dependencias-v1.0/dependencias.zip"
+echo Baixando e extraindo dependencias. Aguarde...
+powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; $root=(Get-Location).Path; $dest=Join-Path $root 'dependencias'; $stage=Join-Path ([IO.Path]::GetTempPath()) ('saae_dep_'+[guid]::NewGuid().ToString('N')); try { New-Item -ItemType Directory -Path $stage | Out-Null; $zip=Join-Path $stage 'dependencias.zip'; $out=Join-Path $stage 'extraido'; if(Test-Path -LiteralPath (Join-Path $root 'dependencias.zip') -PathType Leaf){ Write-Host 'Utilizando dependencias.zip local.'; Copy-Item -LiteralPath (Join-Path $root 'dependencias.zip') -Destination $zip } else { $curl=Join-Path $env:SystemRoot 'System32\curl.exe'; if(-not (Test-Path -LiteralPath $curl -PathType Leaf)){throw 'curl.exe nativo do Windows nao encontrado'}; $partial=Join-Path $root 'dependencias.zip.part'; Write-Host 'Download via cURL (Total, Received, Speed, Time Left):'; & $curl --disable --location --fail --retry 3 --retry-delay 2 --connect-timeout 30 --continue-at - --output $partial $env:DEP_URL; $rc=$LASTEXITCODE; if($rc -ne 0){if($rc -eq 33 -or $rc -eq 36){Write-Host 'Servidor recusou retomada; reiniciando download.'; Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue; & $curl --disable --location --fail --retry 3 --retry-delay 2 --connect-timeout 30 --output $partial $env:DEP_URL; $rc=$LASTEXITCODE}; if($rc -ne 0){throw ('Falha cURL: '+$rc+'; download parcial preservado')}}; if(-not (Test-Path -LiteralPath $partial -PathType Leaf)){throw 'Download nao encontrado'}; Copy-Item -LiteralPath $partial -Destination $zip; Write-Host ('Download concluido: {0:N2} MB' -f ((Get-Item -LiteralPath $zip).Length/1MB)) }; Expand-Archive -LiteralPath $zip -DestinationPath $out; $files=@('cloudflared.exe','MicrosoftEdgeWebView2.exe','python-3.15.2-amd64.exe','VC_redist.x64.exe'); $src=Join-Path $out 'dependencias'; if(-not (Test-Path -LiteralPath $src -PathType Container)){$src=$out}; foreach($f in $files){$p=Join-Path $src $f; if(-not (Test-Path -LiteralPath $p -PathType Leaf) -or (Get-Item -LiteralPath $p).Length -eq 0){throw ('Arquivo ausente ou vazio no ZIP: '+$f)}}; New-Item -ItemType Directory -Path $dest -Force | Out-Null; foreach($f in $files){$target=Join-Path $dest $f; if(-not (Test-Path -LiteralPath $target -PathType Leaf)){Copy-Item -LiteralPath (Join-Path $src $f) -Destination $target}}; if($partial){Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue} } catch { Write-Host $_; exit 1 } finally { if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue} }"
+if errorlevel 1 (call :pendencia "Falha ao baixar ou extrair dependencias.zip. Confira internet e Release dependencias-v1.0 no GitHub." & exit /b 1)
+echo [OK] Pacote de dependencias preparado.
 exit /b 0
