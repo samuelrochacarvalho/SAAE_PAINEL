@@ -127,7 +127,12 @@ def extract_plan(archive, expected_version):
             total += entry.file_size
             if total > MAX_TOTAL:
                 raise ValueError('Pacote descompactado excede o limite.')
-            files[rel] = zf.read(entry)
+            data = zf.read(entry)
+            # GitHub ZIP entrega o conteudo do Git, sem conversao de checkout.
+            # Normaliza scripts Windows antes da instalacao e da validacao.
+            if PurePosixPath(rel).suffix.lower() in ('.bat', '.cmd'):
+                data = data.replace(b'\r\n', b'\n').replace(b'\r', b'\n').replace(b'\n', b'\r\n')
+            files[rel] = data
         if len(roots) != 1 or not REQUIRED <= files.keys():
             raise ValueError('Pacote incompleto ou estrutura invalida.')
         for key in seen:
