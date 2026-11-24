@@ -6,6 +6,10 @@
 /config/comandos.php
 /mqtt/config.py
 /runtime/php
+
+# Dependências externas
+/dependencias/
+/dependencias.zip
 .env
 .env.*
 
